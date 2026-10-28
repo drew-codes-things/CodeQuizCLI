@@ -59,27 +59,37 @@ def fetch_course(course, force=False):
     path = content_cache_path(course)
     fresh = os.path.exists(path) and (time.time() - os.path.getmtime(path) < CACHE_MAX_AGE)
     if fresh and not force:
-        with open(path) as f:
-            return json.load(f)
+        cached = read_cached_course(path)
+        if cached is not None:
+            return cached
 
     url = f"{CONTENT_BASE_URL}/{course}.json"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = resp.read()
+        course_data = json.loads(data)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
-        return json.loads(data)
-    except (urllib.error.URLError, OSError, TimeoutError) as e:
-        if os.path.exists(path):
-            print(f"{c.yellow}Could not reach the network ({e}). Using the cached copy.{c.reset}", file=sys.stderr)
-            with open(path) as f:
-                return json.load(f)
+        return course_data
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
+        cached = read_cached_course(path)
+        if cached is not None:
+            print(f"{c.yellow}Could not fetch fresh content ({e}). Using the cached copy.{c.reset}", file=sys.stderr)
+            return cached
         print(f"{c.red}Error: could not fetch {course} and no cached copy exists.{c.reset}", file=sys.stderr)
         sys.exit(1)
+
+
+def read_cached_course(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def load_progress():
@@ -87,7 +97,7 @@ def load_progress():
     if not os.path.exists(p):
         return {}
     try:
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
@@ -96,7 +106,7 @@ def load_progress():
 def save_progress(progress):
     os.makedirs(CACHE_DIR, exist_ok=True)
     tmp = progress_path() + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(progress, f, indent=2)
     os.replace(tmp, progress_path())
 
@@ -264,10 +274,9 @@ def format_expected(expected):
 
 def run_quiz(course, flat, index):
     lesson = flat[index]
-    queue = [{"exercise": ex, "retry": False} for ex in lesson["exercises"]]
+    queue = [{"exercise": ex, "number": n, "retry": False} for n, ex in enumerate(lesson["exercises"], 1)]
     total = len(queue)
     correct_first_try = 0
-    first_try_number = 0
 
     print(f"\n{c.bold}{lesson['title']}{c.reset}\n")
 
@@ -277,10 +286,7 @@ def run_quiz(course, flat, index):
 
         if item["retry"]:
             print(f"{c.yellow}(retry){c.reset}")
-            correct, expected = run_exercise(exercise, first_try_number, total)
-        else:
-            first_try_number += 1
-            correct, expected = run_exercise(exercise, first_try_number, total)
+        correct, expected = run_exercise(exercise, item["number"], total)
 
         if correct:
             if not item["retry"]:
@@ -289,7 +295,7 @@ def run_quiz(course, flat, index):
         else:
             print(f"{c.red}Not quite.{c.reset} Expected:\n{format_expected(expected)}")
             if not item["retry"]:
-                queue.append({"exercise": exercise, "retry": True})
+                queue.append({**item, "retry": True})
         if exercise.get("explain"):
             print(f"{c.dim}{exercise['explain']}{c.reset}")
         print()
