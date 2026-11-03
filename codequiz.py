@@ -158,6 +158,7 @@ def list_courses():
     print("  codequiz <course>              list lessons and their lock status")
     print("  codequiz <course> <lesson-id>  take a quiz")
     print("  codequiz --update              refresh cached content for all courses")
+    print("  codequiz <course> --continue   resume where you left off, or start the next lesson")
     print("  codequiz <course> --reset      clear local progress for a course")
 
 
@@ -272,13 +273,56 @@ def format_expected(expected):
     return str(expected)
 
 
-def run_quiz(course, flat, index):
+def saved_position(course, lesson):
+    saved = course_progress(load_progress(), course).get("inProgress")
+    if not saved or saved.get("lesson") != lesson["id"] or saved.get("total") != len(lesson["exercises"]):
+        return None
+    return saved
+
+
+def save_position(course, lesson, queue, correct_first_try):
+    progress = load_progress()
+    course_progress(progress, course)["inProgress"] = {
+        "lesson": lesson["id"],
+        "total": len(lesson["exercises"]),
+        "queue": [{"number": item["number"], "retry": item["retry"]} for item in queue],
+        "correctFirstTry": correct_first_try,
+    }
+    save_progress(progress)
+
+
+def starting_queue(course, lesson, restart):
+    exercises = lesson["exercises"]
+    saved = None if restart else saved_position(course, lesson)
+    if saved is None:
+        return [{"exercise": ex, "number": n, "retry": False} for n, ex in enumerate(exercises, 1)], 0
+    queue = [{"exercise": exercises[item["number"] - 1], "number": item["number"], "retry": item["retry"]}
+             for item in saved["queue"] if 1 <= item["number"] <= len(exercises)]
+    done = len(exercises) - len({item["number"] for item in queue})
+    print(f"{c.dim}Picking up where you left off ({done}/{len(exercises)} done). Use --restart to start over.{c.reset}")
+    return queue, saved.get("correctFirstTry", 0)
+
+
+def next_lesson_index(course, flat):
+    cp = course_progress(load_progress(), course)
+    in_progress = (cp.get("inProgress") or {}).get("lesson")
+    completed = set(cp["completed"])
+    if in_progress:
+        index, _ = find_lesson(flat, in_progress)
+        if index is not None and lesson_status(flat, index, completed) != "locked":
+            return index
+    for index in range(len(flat)):
+        if lesson_status(flat, index, completed) == "available":
+            return index
+    return None
+
+
+def run_quiz(course, flat, index, restart=False):
     lesson = flat[index]
-    queue = [{"exercise": ex, "number": n, "retry": False} for n, ex in enumerate(lesson["exercises"], 1)]
-    total = len(queue)
-    correct_first_try = 0
+    total = len(lesson["exercises"])
 
     print(f"\n{c.bold}{lesson['title']}{c.reset}\n")
+    queue, correct_first_try = starting_queue(course, lesson, restart)
 
     while queue:
         item = queue.pop(0)
@@ -299,6 +343,7 @@ def run_quiz(course, flat, index):
         if exercise.get("explain"):
             print(f"{c.dim}{exercise['explain']}{c.reset}")
         print()
+        save_position(course, lesson, queue, correct_first_try)
 
     accuracy = round(100 * correct_first_try / total) if total else 100
     print(f"{c.bold}Lesson complete.{c.reset} {correct_first_try}/{total} correct first try ({accuracy}%).\n")
@@ -311,10 +356,20 @@ def run_quiz(course, flat, index):
     hist["attempts"] += 1
     hist["lastScore"] = f"{correct_first_try}/{total}"
     hist["lastAttemptAt"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    cp.pop("inProgress", None)
     save_progress(progress)
 
 
-def cmd_lesson(course, lesson_id):
+def cmd_continue(course, restart):
+    flat = flatten_lessons(fetch_course(course))
+    index = next_lesson_index(course, flat)
+    if index is None:
+        print(f"{c.green}Every {COURSES[course]} lesson is complete.{c.reset} Retake one with codequiz {course} <lesson-id>.")
+        return
+    run_quiz(course, flat, index, restart)
+
+
+def cmd_lesson(course, lesson_id, restart=False):
     data = fetch_course(course)
     flat = flatten_lessons(data)
     index, lesson = find_lesson(flat, lesson_id)
@@ -330,7 +385,7 @@ def cmd_lesson(course, lesson_id):
         print(f"{c.yellow}'{lesson['title']}' is locked.{c.reset} Complete '{prev['title']}' ({prev['id']}) first.")
         sys.exit(1)
 
-    run_quiz(course, flat, index)
+    run_quiz(course, flat, index, restart)
 
 
 def cmd_reset(course):
@@ -349,6 +404,9 @@ def main():
     parser.add_argument("--update", action="store_true", help="force-refresh cached content")
     parser.add_argument("--reset", action="store_true", help="clear local progress for the given course")
     parser.add_argument("--no-color", action="store_true", help="disable colour output")
+    parser.add_argument("--continue", dest="resume", action="store_true",
+                        help="carry on: resume an unfinished lesson, or start the next unlocked one")
+    parser.add_argument("--restart", action="store_true", help="start the lesson from the first question")
     args = parser.parse_args()
 
     if args.no_color:
@@ -376,11 +434,15 @@ def main():
         list_courses()
         return
 
+    if args.resume and not args.lesson:
+        cmd_continue(args.course, args.restart)
+        return
+
     if not args.lesson:
         list_lessons(args.course)
         return
 
-    cmd_lesson(args.course, args.lesson)
+    cmd_lesson(args.course, args.lesson, args.restart)
 
 
 if __name__ == "__main__":

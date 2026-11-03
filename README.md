@@ -58,6 +58,8 @@ codequiz                       # list courses
 codequiz python                # list a course's lessons and lock status
 codequiz python py-print       # take the quiz for one lesson
 codequiz --update              # refresh cached content for every course
+codequiz python --continue     # resume where you left off, or start the next unlocked lesson
+codequiz python loops --restart  # retake a lesson from question 1
 codequiz python --reset        # clear local progress for one course
 codequiz python py-print --no-color   # plain output, no ANSI colour
 ```
