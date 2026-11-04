@@ -217,12 +217,14 @@ def prompt_blank(exercise, index, total):
 
 
 def check_blank(exercise, given):
-    expected = exercise["answers"]
+    expected = exercise.get("answers") or []
     alt_lists = exercise.get("alternatives") or []
+    if len(given) != len(expected):
+        return False, expected
     all_correct = True
     for i, value in enumerate(given):
         alt = alt_lists[i] if i < len(alt_lists) else []
-        if value != expected[i] and value not in alt:
+        if value != expected[i] and value not in (alt or []):
             all_correct = False
     return all_correct, expected
 

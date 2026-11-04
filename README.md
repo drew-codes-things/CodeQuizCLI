@@ -41,14 +41,14 @@ fetch its lessons.
 ## Setup
 
 ```bash
-chmod +x codequiz
-cp codequiz ~/.local/bin/
+chmod +x codequiz.py
+cp codequiz.py ~/.local/bin/codequiz
 ```
 
 Anywhere on `PATH` works. To run it without installing:
 
 ```bash
-./codequiz python
+./codequiz.py python
 ```
 
 ## Usage
