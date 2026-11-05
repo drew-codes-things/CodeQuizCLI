@@ -11,6 +11,8 @@
 
 </div>
 
+![CodeQuizCLI running the first Python lesson](screenshot.png)
+
 ---
 
 ## Overview
