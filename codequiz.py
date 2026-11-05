@@ -181,6 +181,12 @@ def list_lessons(course):
     print(f"Run {c.bold}codequiz {course} <lesson-id>{c.reset} to take a quiz.")
 
 
+def format_choice(letter, choice):
+    first, *rest = str(choice).splitlines() or [""]
+    indent = " " * len(f"  {letter}) ")
+    return "\n".join([f"  {letter}) {first}", *(indent + line for line in rest)])
+
+
 def prompt_choice(exercise, index, total):
     print(f"{c.bold}[{index}/{total}]{c.reset} {exercise['prompt']}")
     if exercise.get("code"):
@@ -190,7 +196,7 @@ def prompt_choice(exercise, index, total):
     print()
     letters = [chr(65 + i) for i in range(len(exercise["choices"]))]
     for letter, choice in zip(letters, exercise["choices"]):
-        print(f"  {letter}) {choice}")
+        print(format_choice(letter, choice))
     while True:
         raw = input(f"\n{c.bold}> {c.reset}").strip().upper()
         if raw and raw[0] in letters:
